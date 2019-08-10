@@ -16,8 +16,9 @@ short selectedR, selectedL;
 void sig_winch(int signo);
 void menu(WINDOW *leftWindow, WINDOW *rightWindow);
 void fillpath(char *buff, char *path);
+void nonfolder(char *path);
 void file_manager(WINDOW *leftWindow, WINDOW *rightWindow, char *leftPath, char *rightPath);
-void info(WINDOW *leftWindow, WINDOW *rightWindow, char *leftPath, char *rightPath, int num);
+void info(WINDOW *leftWindow, WINDOW *rightWindow, char *leftPath, char *rightPath);
 
 int main(){
 	WINDOW *leftWindow;
@@ -37,8 +38,8 @@ int main(){
 	leftWindow = newwin(20, 40, 0, 0);
 	rightWindow = newwin(20, 80, 0, 40);
 
-	leftPath[0] = '.'; leftPath[1] = '\0';
-	rightPath[0] = '.'; rightPath[1] = '\0';
+	leftPath[0] = '.'; leftPath[1] = '/'; leftPath[2] = '\0';
+	rightPath[0] = '.'; rightPath[1] = '/'; rightPath[2] = '\0';
 
 	menu(leftWindow, rightWindow);
 	file_manager(leftWindow, rightWindow, leftPath, rightPath);
@@ -94,24 +95,46 @@ void menu(WINDOW *leftWindow, WINDOW *rightWindow){
 }
 
 void fillpath(char *buff, char *path){
-	int i = 1;
-	path[0] = '.'; path[1] = '/'; 
+	int i = 1, j = 0;
+
+	while(path[j] != '\0')
+		j++;
+	if (path[j - 1] != '/'){
+		path[j] = '/';
+		j++;
+	}
+	
 	while (buff[i] != ' '){
-		path[i + 1] = buff[i];
+		path[j] = buff[i];
+		j++;
 		i++;
 	}
-	path[i + 1] = '\0';
+	path[j] = '\0';
 	return;
 }
 
-void info(WINDOW *leftWindow, WINDOW *rightWindow, char *leftPath, char *rightPath, int num){
+void nonfolder(char *path){
+	int i = 0;
+	while(path[i] != '\0')
+		i++;
+	while(path[i] != '/'){
+		i--;
+	}
+	path[i] = '\0';
+}
+
+void info(WINDOW *leftWindow, WINDOW *rightWindow, char *leftPath, char *rightPath){
 	wclear(leftWindow); wclear(rightWindow);
 	menu(leftWindow, rightWindow);
 	struct stat sb;
 	struct dirent **namelist = NULL;
 	int n = -1, i = 1;
 
-	n = scandir(".", &namelist, NULL, alphasort);
+	n = scandir(leftPath, &namelist, NULL, alphasort);
+	if (n == -1){
+		nonfolder(leftPath);
+		n = scandir(leftPath, &namelist, NULL, alphasort);
+	}
 	if ((selectedL + 1) >= n) selectedL = 0;
 	while(i < n){
 		if (i == (selectedL + 1)) wattron(leftWindow, COLOR_PAIR(2));
@@ -121,13 +144,15 @@ void info(WINDOW *leftWindow, WINDOW *rightWindow, char *leftPath, char *rightPa
 		if (i == (selectedL + 1)) wattron(leftWindow, COLOR_PAIR(1));
 		i++;
 	}
-	wmove(leftWindow, 10, 0);
-	wprintw(leftWindow, leftPath);
 	wrefresh(leftWindow);
 	free(namelist);
 
 	i = 1;	
-	n = scandir(".", &namelist, NULL, alphasort);
+	n = scandir(rightPath, &namelist, NULL, alphasort);
+	if (n == -1){
+		nonfolder(rightPath);
+		n = scandir(rightPath, &namelist, NULL, alphasort);
+	}
 	if ((selectedR + 1) >= n) selectedR = 0;
 	while(i < n){
 		if (i == (selectedR + 1)) wattron(rightWindow, COLOR_PAIR(2));
@@ -137,7 +162,6 @@ void info(WINDOW *leftWindow, WINDOW *rightWindow, char *leftPath, char *rightPa
 		if (i == (selectedR + 1)) wattron(rightWindow, COLOR_PAIR(1));
 		i++;
 	}
-
 	wrefresh(rightWindow);
 	free(namelist);
 }
@@ -145,11 +169,11 @@ void info(WINDOW *leftWindow, WINDOW *rightWindow, char *leftPath, char *rightPa
 void file_manager(WINDOW *leftWindow, WINDOW *rightWindow, char *leftPath, char *rightPath){
 	int working = 1;
 	int ch, num = 1;
-	char buff[100];
+	char buff[1000];
 
 	selectedL = 0; selectedR = 0;
 
-	info(leftWindow, rightWindow, leftPath, rightPath, num);
+	info(leftWindow, rightWindow, leftPath, rightPath);
 
 	while(working){
 		ch = getch();
@@ -161,37 +185,29 @@ void file_manager(WINDOW *leftWindow, WINDOW *rightWindow, char *leftPath, char 
 			case KEY_UP:{
 				if ((num == 1) && (selectedL > 0)) selectedL--;
 				else if (selectedR > 0) selectedR--;
-				info(leftWindow, rightWindow, leftPath, rightPath, num);
+				info(leftWindow, rightWindow, leftPath, rightPath);
 				break;
 			}
 			case KEY_DOWN:{
 				if (num == 1) selectedL++;
 				else selectedR++;
-				info(leftWindow, rightWindow, leftPath, rightPath, num);
+				info(leftWindow, rightWindow, leftPath, rightPath);
 				break;
 			}
 			case 10:{
 				if (num == 1){
 					wmove(leftWindow, selectedL + 1, 0);
 					winstr(leftWindow, buff);
-					if (selectedL != 0) fillpath(buff, leftPath);
-					else {
-						leftPath[0] = '.'; leftPath[1] = '.'; leftPath[2] = '\0';
-					}
-					chdir(leftPath);
+					fillpath(buff, leftPath);
 				}
 				else{
 					wmove(rightWindow, selectedR + 1, 0);
 					winstr(rightWindow, buff);
-					if (selectedR != 0) fillpath(buff, rightPath);
-					else {	
-						rightPath[0] = '.'; rightPath[1] = '.'; rightPath[2] = '\0';
-					}
-					chdir(rightPath);
+					fillpath(buff, rightPath);
 				}
 				clear();
 				menu(leftWindow, rightWindow);
-				info(leftWindow, rightWindow, leftPath, rightPath, num);
+				info(leftWindow, rightWindow, leftPath, rightPath);
 				break;
 			}
 			case KEY_F(2):{
