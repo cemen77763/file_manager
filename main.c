@@ -10,20 +10,30 @@
 #include <curses.h>
 #include <string.h>
 #include <dirent.h>
+#include <pthread.h>
 
 short selectedR, selectedL;
 
 void sig_winch(int signo);
+
 void menu(WINDOW *leftWindow, WINDOW *rightWindow);
+
 void fillpath(char *buff, char *path);
+
 void nonfolder(char *path);
+
+void takefilename(char *buff, char *filename, char *path);
+
+void funcforcoping(char *filename1, char *filename2);
+
 void file_manager(WINDOW *leftWindow, WINDOW *rightWindow, char *leftPath, char *rightPath);
+
 void info(WINDOW *leftWindow, WINDOW *rightWindow, char *leftPath, char *rightPath);
 
 int main(){
 	WINDOW *leftWindow;
 	WINDOW *rightWindow;
-	char leftPath[255], rightPath[255];
+	char leftPath[1000], rightPath[1000];
 
 	initscr();
 	signal(SIGWINCH, sig_winch);
@@ -63,7 +73,9 @@ void menu(WINDOW *leftWindow, WINDOW *rightWindow){
     move(21, 0);
     printw("F1 to quit");
     move(22, 0);
-    printw("F2 to change window");
+    printw("F2 to change window");    
+    move(23, 0);
+    printw("F3 to copy file");
 	refresh();
 
 	wbkgd(leftWindow, COLOR_PAIR(1));
@@ -123,10 +135,26 @@ void nonfolder(char *path){
 	path[i] = '\0';
 }
 
+void takefilename(char *buff, char *filename, char *path){
+	int i = 0, j = 1;
+	while(path[i] != '\0'){
+		filename[i] = path[i];
+		i++;
+	}
+	if (i > 2){
+		filename[i] = '/'; 
+		i++;
+	}
+	while(buff[j] != ' '){
+		filename[j + i - 1] = buff[j];
+		j++;
+	}
+	filename[j + i - 1] = '\0';
+}
+
 void info(WINDOW *leftWindow, WINDOW *rightWindow, char *leftPath, char *rightPath){
 	wclear(leftWindow); wclear(rightWindow);
 	menu(leftWindow, rightWindow);
-	struct stat sb;
 	struct dirent **namelist = NULL;
 	int n = -1, i = 1;
 
@@ -166,10 +194,27 @@ void info(WINDOW *leftWindow, WINDOW *rightWindow, char *leftPath, char *rightPa
 	free(namelist);
 }
 
+void funcforcoping(char *filename1, char *filename2){
+	FILE *fp1, *fp2;
+	char buff[1000];
+	int fd;
+
+	fp1 = fopen((char*)filename1, "r");
+	fread(buff, 1, 1000, fp1);
+	fd = creat((char*)filename2, 00666);
+	close(fd);
+	fp2 = fopen((char*)filename2, "w");
+	fwrite(buff, 1, 1000, fp2);
+
+	close(fd);
+	fclose(fp1);
+	fclose(fp2);
+}
+
 void file_manager(WINDOW *leftWindow, WINDOW *rightWindow, char *leftPath, char *rightPath){
 	int working = 1;
 	int ch, num = 1;
-	char buff[1000];
+	char buff[30], filename1[1000], filename2[1000];
 
 	selectedL = 0; selectedR = 0;
 
@@ -214,7 +259,27 @@ void file_manager(WINDOW *leftWindow, WINDOW *rightWindow, char *leftPath, char 
 				if (num == 1)
 					num = 2;
 				else num = 1;
+				break;
 			}
+			case KEY_F(3):{
+				if (num == 1){
+					wmove(leftWindow, selectedL + 1, 0);
+					winstr(leftWindow, buff);
+					takefilename(buff, filename1, leftPath);
+					takefilename(buff, filename2, rightPath);
+
+					funcforcoping(filename1, filename2);
+				} else{
+					wmove(rightWindow, selectedR + 1, 0);
+					winstr(rightWindow, buff);
+					takefilename(buff, filename1, rightPath);
+					takefilename(buff, filename2, leftPath);
+
+					funcforcoping(filename1, filename2);
+				}
+				break;
+			}
+			default: break;
 		}
 	}
 }
