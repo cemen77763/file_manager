@@ -226,9 +226,13 @@ void info(WINDOW *leftWindow, WINDOW *rightWindow, char *leftPath, char *rightPa
 void* funcforcoping(void *thread_data){
 	struct pthrData *data = (struct pthrData*)thread_data;
 
-	FILE *fp1, *fp2;
+	FILE *fp1 = NULL, *fp2 = NULL;
 	char buff[1024];
 	int i = 0;
+
+	if (lstat(data->filename1, &(data->sb)) == -1) pthread_exit(EXIT_SUCCESS);
+
+	if ((data->sb.st_mode & S_IFMT) == S_IFDIR) pthread_exit(EXIT_SUCCESS);
 
 	fp1 = fopen(data->filename1, "r");
 	if (fp1 == NULL) pthread_exit(EXIT_SUCCESS);
@@ -256,6 +260,8 @@ void* inputcoping(void *thread_data){
 	if (lstat(data->filename1, &(data->sb)) == -1)
 		pthread_exit(EXIT_SUCCESS);
 	size = data->sb.st_size;
+
+	if ((data->sb.st_mode & S_IFMT) == S_IFDIR) pthread_exit(EXIT_SUCCESS);
 
 	while (perc < 100) {
 		if (lstat(data->filename2, &(data->sb)) == -1){
