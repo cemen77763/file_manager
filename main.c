@@ -14,6 +14,13 @@
 
 short selectedR, selectedL;
 
+struct pthrData{
+	char filename1[1000];
+	char filename2[1000];
+	struct stat sb;
+	WINDOW *win;
+};
+
 void sig_winch(int signo);
 
 void menu(WINDOW *leftWindow, WINDOW *rightWindow);
@@ -24,7 +31,9 @@ void nonfolder(char *path);
 
 void takefilename(char *buff, char *filename, char *path);
 
-void funcforcoping(char *filename1, char *filename2);
+void* funcforcoping(void *thread_data);
+
+void* inputcoping(void *thread_data);
 
 void file_manager(WINDOW *leftWindow, WINDOW *rightWindow, char *leftPath, char *rightPath);
 
@@ -44,6 +53,7 @@ int main(){
 	start_color();
 	init_pair(1, COLOR_WHITE, COLOR_BLUE);
 	init_pair(2, COLOR_GREEN, COLOR_YELLOW);
+	init_pair(3, COLOR_WHITE, COLOR_BLACK);
 
 	leftWindow = newwin(20, 40, 0, 0);
 	rightWindow = newwin(20, 80, 0, 40);
@@ -155,6 +165,9 @@ void takefilename(char *buff, char *filename, char *path){
 void info(WINDOW *leftWindow, WINDOW *rightWindow, char *leftPath, char *rightPath){
 	wclear(leftWindow); wclear(rightWindow);
 	menu(leftWindow, rightWindow);
+
+	char buff[100], filename[1000];
+	struct stat sb;
 	struct dirent **namelist = NULL;
 	int n = -1, i = 1;
 
@@ -168,6 +181,14 @@ void info(WINDOW *leftWindow, WINDOW *rightWindow, char *leftPath, char *rightPa
 		if (i == (selectedL + 1)) wattron(leftWindow, COLOR_PAIR(2));
 		wmove(leftWindow, i, 1);
 		wprintw(leftWindow, namelist[i]->d_name);
+
+		wmove(leftWindow, i, 0);
+		winstr(leftWindow, buff);
+		takefilename(buff, filename, leftPath);
+		lstat(filename, &sb);
+		wmove(leftWindow, i, 26);
+		wprintw(leftWindow, "%lldkb", sb.st_size/1024);
+
 		free(namelist[i - 1]);
 		if (i == (selectedL + 1)) wattron(leftWindow, COLOR_PAIR(1));
 		i++;
@@ -186,6 +207,14 @@ void info(WINDOW *leftWindow, WINDOW *rightWindow, char *leftPath, char *rightPa
 		if (i == (selectedR + 1)) wattron(rightWindow, COLOR_PAIR(2));
 		wmove(rightWindow, i, 1);
 		wprintw(rightWindow, namelist[i]->d_name);
+
+		wmove(leftWindow, i, 0);
+		winstr(rightWindow, buff);
+		takefilename(buff, filename, rightPath);
+		lstat(filename, &sb);
+		wmove(rightWindow, i, 26);
+		wprintw(rightWindow, "%lldkb", sb.st_size/1024);
+
 		free(namelist[i - 1]);
 		if (i == (selectedR + 1)) wattron(rightWindow, COLOR_PAIR(1));
 		i++;
@@ -194,27 +223,69 @@ void info(WINDOW *leftWindow, WINDOW *rightWindow, char *leftPath, char *rightPa
 	free(namelist);
 }
 
-void funcforcoping(char *filename1, char *filename2){
+void* funcforcoping(void *thread_data){
+	struct pthrData *data = (struct pthrData*)thread_data;
+
 	FILE *fp1, *fp2;
-	char buff[1000];
-	int fd;
+	char buff[1024];
+	int i = 0;
 
-	fp1 = fopen((char*)filename1, "r");
-	fread(buff, 1, 1000, fp1);
-	fd = creat((char*)filename2, 00666);
-	close(fd);
-	fp2 = fopen((char*)filename2, "w");
-	fwrite(buff, 1, 1000, fp2);
+	fp1 = fopen(data->filename1, "r");
+	if (fp1 == NULL) pthread_exit(EXIT_SUCCESS);
 
-	close(fd);
+	fp2 = fopen(data->filename2, "w");
+	if (fp2 == NULL) pthread_exit(EXIT_SUCCESS);
+
+	while (1){
+		if (fread(buff, 1, 1024, fp1) == 0) break;
+		fwrite(buff, 1, 1024, fp2);
+	}
+
 	fclose(fp1);
 	fclose(fp2);
+	pthread_exit(EXIT_SUCCESS);
+}
+
+void* inputcoping(void *thread_data){
+	struct pthrData *data = (struct pthrData*)thread_data;
+	data->sb.st_size = 0;
+	long long size;
+	long long proc;
+	float perc = 0;
+
+	if (lstat(data->filename1, &(data->sb)) == -1)
+		pthread_exit(EXIT_SUCCESS);
+	size = data->sb.st_size;
+
+	while (perc < 100) {
+		if (lstat(data->filename2, &(data->sb)) == -1){
+			data->sb.st_size = 0;
+			continue;
+		}
+		perc = ((float)data->sb.st_size/(float)size)*100;
+
+		wattron(data->win, COLOR_PAIR(3));
+		wmove(data->win, 16, 1);
+		wprintw(data->win, "Coping %f percent", perc); 
+		wmove(data->win, 17, 1);
+		wprintw(data->win, "Current file %lld to %lld", size/(1024*1024), data->sb.st_size/(1024*1024));
+		wrefresh(data->win);
+		refresh();
+	} 
+
+	wattron(data->win, COLOR_PAIR(1));
+	wmove(data->win, 18, 1);
+	wprintw(data->win, "I'm done");
+	pthread_exit(EXIT_SUCCESS);
 }
 
 void file_manager(WINDOW *leftWindow, WINDOW *rightWindow, char *leftPath, char *rightPath){
 	int working = 1;
 	int ch, num = 1;
 	char buff[30], filename1[1000], filename2[1000];
+	pthread_t tid[2];
+
+	struct pthrData thread_data;
 
 	selectedL = 0; selectedR = 0;
 
@@ -251,7 +322,6 @@ void file_manager(WINDOW *leftWindow, WINDOW *rightWindow, char *leftPath, char 
 					fillpath(buff, rightPath);
 				}
 				clear();
-				menu(leftWindow, rightWindow);
 				info(leftWindow, rightWindow, leftPath, rightPath);
 				break;
 			}
@@ -265,18 +335,25 @@ void file_manager(WINDOW *leftWindow, WINDOW *rightWindow, char *leftPath, char 
 				if (num == 1){
 					wmove(leftWindow, selectedL + 1, 0);
 					winstr(leftWindow, buff);
-					takefilename(buff, filename1, leftPath);
-					takefilename(buff, filename2, rightPath);
+					takefilename(buff, thread_data.filename1, leftPath);
+					takefilename(buff, thread_data.filename2, rightPath);
+					thread_data.win = rightWindow;
 
-					funcforcoping(filename1, filename2);
+					pthread_create(&(tid[0]), NULL, funcforcoping, &(thread_data));
+					pthread_create(&(tid[1]), NULL, inputcoping, &(thread_data));
 				} else{
 					wmove(rightWindow, selectedR + 1, 0);
 					winstr(rightWindow, buff);
-					takefilename(buff, filename1, rightPath);
-					takefilename(buff, filename2, leftPath);
+					takefilename(buff, thread_data.filename1, rightPath);
+					takefilename(buff, thread_data.filename2, leftPath);
+					thread_data.win = leftWindow;
 
-					funcforcoping(filename1, filename2);
+					pthread_create(&(tid[0]), NULL, funcforcoping, &(thread_data));
+					pthread_create(&(tid[1]), NULL, inputcoping, &(thread_data));
 				}
+				pthread_join(tid[0], NULL);
+				pthread_join(tid[1], NULL);
+				//info(leftWindow, rightWindow, leftPath, rightPath);
 				break;
 			}
 			default: break;
